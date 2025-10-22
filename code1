@@ -1,0 +1,125 @@
+# Raspberry Pi Pico: Washroom People Counter + Cleanliness Display
+# Components: 2 Ultrasonic Sensors (HC-SR04), MQ2 Gas Sensor, SSD1306 OLED
+# Author: Simplified version for student understanding
+
+from machine import Pin, I2C, ADC
+import ssd1306
+import time
+from utime import sleep_us, sleep
+
+# ------------------------------------
+# Pin Configuration
+# ------------------------------------
+# Ultrasonic Sensor 1 (Outside - Entry)
+TRIG1 = Pin(2, Pin.OUT)
+ECHO1 = Pin(3, Pin.IN)
+
+# Ultrasonic Sensor 2 (Inside - Exit)
+TRIG2 = Pin(4, Pin.OUT)
+ECHO2 = Pin(5, Pin.IN)
+
+# Gas Sensor MQ2 (Analog)
+gas_sensor = ADC(26)
+
+# OLED Display (SSD1306)
+i2c = I2C(0, scl=Pin(1), sda=Pin(0))
+oled = ssd1306.SSD1306_I2C(128, 64, i2c)
+
+# ------------------------------------
+# Variables
+# ------------------------------------
+people_entered = 0
+people_exited = 0
+people_inside = 0
+distance_limit = 15   # cm threshold for detecting person
+
+# ------------------------------------
+# Main Loop
+# ------------------------------------
+print("System Starting...")
+
+while True:
+    try:
+        # ------------------------------------
+        # Measure Distance - Ultrasonic Sensor 1 (Entry)
+        # ------------------------------------
+        TRIG1.low()
+        sleep_us(2)
+        TRIG1.high()
+        sleep_us(10)
+        TRIG1.low()
+
+        while ECHO1.value() == 0:
+            signal_off1 = time.ticks_us()
+        while ECHO1.value() == 1:
+            signal_on1 = time.ticks_us()
+
+        time_passed1 = signal_on1 - signal_off1
+        distance1 = (time_passed1 * 0.0343) / 2
+
+        # ------------------------------------
+        # Measure Distance - Ultrasonic Sensor 2 (Exit)
+        # ------------------------------------
+        TRIG2.low()
+        sleep_us(2)
+        TRIG2.high()
+        sleep_us(10)
+        TRIG2.low()
+
+        while ECHO2.value() == 0:
+            signal_off2 = time.ticks_us()
+        while ECHO2.value() == 1:
+            signal_on2 = time.ticks_us()
+
+        time_passed2 = signal_on2 - signal_off2
+        distance2 = (time_passed2 * 0.0343) / 2
+
+        # ------------------------------------
+        # People Entry Detection (Sensor 1)
+        # ------------------------------------
+        if distance1 < distance_limit:
+            people_entered += 1
+            people_inside = people_entered - people_exited
+            print(f"People Entered | Distance: {distance1:.1f} cm | Count: {people_inside}")
+            sleep(1)  # small delay to avoid double counting
+
+        # ------------------------------------
+        # People Exit Detection (Sensor 2)
+        # ------------------------------------
+        if distance2 < distance_limit and people_inside > 0:
+            people_exited += 1
+            people_inside = people_entered - people_exited
+            print(f"People Exiting | Distance: {distance2:.1f} cm | Count: {people_inside}")
+            sleep(1)
+
+        # ------------------------------------
+        # Gas Sensor Reading and Cleanliness Calculation
+        # ------------------------------------
+        gas_value = gas_sensor.read_u16()   # Range 0–65535
+        cleanliness = 100 - int((gas_value / 65535) * 100)
+
+        # Determine cleanliness status
+        if cleanliness > 70:
+            status = "Clean"
+        elif cleanliness > 40:
+            status = "Moderate"
+        else:
+            status = "Dirty"
+
+        # ------------------------------------
+        # OLED Display Output
+        # ------------------------------------
+        oled.fill(0)
+        oled.text("Washroom Status", 0, 0)
+        oled.text("People Inside:", 0, 20)
+        oled.text(str(people_inside), 110, 20)
+        oled.text("Cleanliness:", 0, 35)
+        oled.text(str(cleanliness) + "%", 90, 35)
+        oled.text("Status: " + status, 0, 50)
+        oled.show()
+
+        sleep(0.5)
+
+    except Exception as e:
+        print("Error:", e)
+        sleep(1)
