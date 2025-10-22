@@ -1,0 +1,96 @@
+# Raspberry Pi Pico: People Counter + Gas Sensor Cleanliness Display
+# Components: 2 Ultrasonic sensors (HC-SR04), MQ2 Gas sensor, SSD1306 OLED
+
+from machine import Pin, ADC, I2C
+from utime import sleep_us, sleep
+import ssd1306
+
+# --- Ultrasonic Sensor Pins ---
+TRIG1 = Pin(2, Pin.OUT)
+ECHO1 = Pin(3, Pin.IN)
+
+TRIG2 = Pin(4, Pin.OUT)
+ECHO2 = Pin(5, Pin.IN)
+
+# --- Gas Sensor (MQ2) ---
+gas_sensor = ADC(26)  # Analog pin GP26
+
+# --- OLED Display Setup ---
+i2c = I2C(0, scl=Pin(1), sda=Pin(0))
+oled = ssd1306.SSD1306_I2C(128, 64, i2c)
+
+# --- Variables ---
+people_inside = 0
+distance_threshold = 15  # cm for detecting presence
+
+# --- Function to measure distance from ultrasonic ---
+def get_distance(trigger, echo):
+    trigger.low()
+    sleep_us(2)
+    trigger.high()
+    sleep_us(10)
+    trigger.low()
+
+    while echo.value() == 0:
+        signaloff = time.ticks_us()
+    while echo.value() == 1:
+        signalon = time.ticks_us()
+    timepassed = signalon - signaloff
+    distance = (timepassed * 0.0343) / 2
+    return distance
+
+# --- Function to calculate cleanliness percentage ---
+def get_cleanliness():
+    gas_value = gas_sensor.read_u16()  # 0–65535
+    cleanliness = 100 - int((gas_value / 65535) * 100)
+    return cleanliness
+
+# --- Function to update OLED Display ---
+def update_display(count, cleanliness):
+    oled.fill(0)
+    oled.text("Washroom Status", 0, 0)
+    oled.text(f"People: {count}", 0, 20)
+    oled.text(f"Cleanliness:", 0, 35)
+    oled.text(f"{cleanliness}%", 80, 35)
+
+    if cleanliness > 70:
+        oled.text("Status: Clean", 0, 50)
+    elif cleanliness > 40:
+        oled.text("Status: Moderate", 0, 50)
+    else:
+        oled.text("Status: Dirty", 0, 50)
+    oled.show()
+
+# --- Main Loop ---
+import time
+print("System Starting...")
+
+while True:
+    try:
+        # Measure distances
+        dist1 = get_distance(TRIG1, ECHO1)
+        dist2 = get_distance(TRIG2, ECHO2)
+
+        # Entry detection
+        if dist1 < distance_threshold:
+            people_inside += 1
+            print(f"People Entered | Distance1: {dist1:.1f} cm | Count: {people_inside}")
+            sleep(1)  # debounce delay
+
+        # Exit detection
+        if dist2 < distance_threshold and people_inside > 0:
+            people_inside -= 1
+            print(f"People Exiting | Distance2: {dist2:.1f} cm | Count: {people_inside}")
+            sleep(1)
+
+        # Read cleanliness
+        cleanliness = get_cleanliness()
+
+        # Update OLED
+        update_display(people_inside, cleanliness)
+
+        sleep(0.5)
+
+    except Exception as e:
+        print("Error:", e)
+        sleep(1)
